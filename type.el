@@ -3,26 +3,35 @@
 (defvar type-timers nil)
 
 (defun init-game ()
-
   ;; Shuffle the vector of words and turn it in to a list.
   (setq words (mapcar 'eval (shuffle-vector words)))
   (type-loop))
 
-(defun type-goto-char (pos)
-  (if (< pos (point-max))
-      (goto-char pos)
+(defun type-goto-char (point)
+  (if (< point (point-max))
+      (goto-char point)
     (goto-char (point-max))
-    (insert (make-string (- pos (point-max)) ? ))))
+    (insert (make-string (- point (point-max)) ? ))))
 
-(defun spawn-word ()
+(defun type-insert-overwrite (point word)
+  (type-goto-char point)
+  (let* ((len (length word))
+         (bytes-to-delete
+          (if (< (point-max) (+ point len))
+              (- len (- (+ point len) (point-max)))
+            len)))
+    (delete-char bytes-to-delete)
+    (insert word)))
+
+(defun type-spawn-word ()
   (when (string= "Type" (buffer-name (current-buffer)))
-   (let ((word (pop words)))
-     (type-goto-char (random (- fill-column (length word))))
-     (delete-char (length word))
-     (insert word))))
+    (let* ((word (pop words))
+           (point (random (- fill-column (length word)))))
+      (message "word: %s, point: %d" word point)
+      (type-insert-overwrite point word))))
 
 (defun type-loop ()
-  (push (run-at-time "0 sec" 2 'spawn-word) type-timers))
+  (push (run-at-time "0 sec" 2 'type-spawn-word) type-timers))
 
 (defun type ()
   (interactive)
