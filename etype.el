@@ -75,7 +75,7 @@
   (let ((random (abs (random))))
     (/ random (expt 10.0 (floor (log random 10))))))
 
-(defun etype-get-word (%optional count)
+(defun etype-get-word (&optional count)
   (let ((word (pop etype-unused-words)))
     (if (null (member
                (string-to-char word)
@@ -92,7 +92,7 @@
              (point (random (- fill-column (length word)))))
         (goto-char point)
         (setq point (etype-fit-word word))
-        (when (and point (etype-word-ok-p word))
+        (when point
           (delete-char (length word))
           (insert word)
           (push word etype-words-in-play)
@@ -157,11 +157,11 @@
 (define-derived-mode etype-mode nil "Etype"
   "A mode for playing Etype."
   (make-local-variable 'etype-score)
-  (make-local-variable 'etype-words-in-play)
-  (make-local-variable 'etype-unused-words)
   (make-local-variable 'etype-timers)
   (make-local-variable 'etype-overlay)
   (make-local-variable 'etype-in-game)
+  (make-local-variable 'etype-unused-words)
+  (make-local-variable 'etype-words-in-play)
   (make-local-variable 'etype-completing-word)
   (define-key (current-local-map) [remap self-insert-command] 'etype-catch-input)
   (add-hook 'kill-buffer-hook 'etype-cleanup))
