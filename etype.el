@@ -40,9 +40,9 @@
 
 (defun etype-fit-word (word)
   (let* ((space (make-string (+ 1 (length word)) ? )))
-    (or (and (looking-at space) (point))
-        (search-backward space (point-at-bol) nil)
-        (search-forward space (point-at-eol) nil))))
+    (cond ((looking-at space) (point))
+          ((search-backward space (point-at-bol) nil) (point))
+          ((search-forward space (point-at-eol) nil) (- (point) (length space))))))
 
 (defun etype-search-timers (point)
   (first
@@ -58,7 +58,6 @@
       (let ((check-word (thing-at-point 'word)))
         (goto-char point)
         (unless (equal check-word (thing-at-point 'word))
-
           (let* ((word (thing-at-point 'word))
                  (len (length word))
                  (timer (etype-search-timers point)))
@@ -102,13 +101,13 @@
           (message "Spawned word %s moves every %f second" word random))))))
 
 (defun etype-loop ()
-  ;; (push (run-at-time "5 sec" 3 'etype-drop) etype-timers)
   (push (run-at-time "0 sec" 2 'etype-spawn-word) etype-timers))
 
 (defun etype-search-word (key-etyped)
   (setq etype-completing-word
-        (search-forward
-         (concat " " (single-key-description last-input-event)) nil t))
+        (search-forward-regexp
+         (concat
+          "\\<" (single-key-description last-input-event)) nil t))
   (when etype-completing-word
     (setq etype-overlay
           (make-overlay (- etype-completing-word 1) etype-completing-word))
@@ -126,7 +125,8 @@
   (let* ((word (thing-at-point 'word))
          (len (length word))
          (space (make-string len ? )))
-    (delq word etype-words-in-play)
+    (setq etype-words-in-play
+          (remove word etype-words-in-play))
     (add-to-list 'etype-unused-words word t)
     (backward-word)
     (delete-char len)
@@ -163,5 +163,6 @@
   (make-local-variable 'etype-unused-words)
   (make-local-variable 'etype-words-in-play)
   (make-local-variable 'etype-completing-word)
-  (define-key (current-local-map) [remap self-insert-command] 'etype-catch-input)
+  (define-key (current-local-map)
+    [remap self-insert-command] 'etype-catch-input)
   (add-hook 'kill-buffer-hook 'etype-cleanup))
