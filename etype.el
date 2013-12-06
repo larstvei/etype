@@ -39,10 +39,19 @@
   (setq etype-unused-words (mapcar 'eval (shuffle-vector (etype-read-file)))))
 
 (defun etype-fit-word (word)
-  (let* ((space (make-string (+ 1 (length word)) ? )))
-    (cond ((looking-at space) (point))
-          ((search-backward space (point-at-bol) nil) (point))
-          ((search-forward space (point-at-eol) nil) (- (point) (length space))))))
+  (let* ((space (make-string (+ 2 (length word)) ? )))
+    (cond ((and (or (looking-back " ") (bolp)) (looking-at space))
+           (point))
+          ((search-backward space (point-at-bol) t)
+           (message "%s: went backwards" word)
+           (unless (or (looking-back " ") (bolp))
+             (forward-char))
+           (point))
+          ((search-forward space (point-at-eol) t)
+           (message "%s: went forwards" word)
+           ;; (unless (looking-at space)
+           ;;   (backward-char))
+           (- (point) (- (length space) 1))))))
 
 (defun etype-search-timers (point)
   (first
@@ -52,23 +61,41 @@
         (and (numberp (first arg))
              (= point (first arg))))) etype-timers)))
 
-(defun etype-move-word (point)
+(defun etype-at-word-p (point)
   (save-excursion
-    (when etype-in-game
-      (let ((check-word (thing-at-point 'word)))
+    (let ((word-at-point (thing-at-point 'word)))
+      (goto-char point)
+      (equal word-at-point (thing-at-point 'word)))))
+
+(defun etype-move-word (point)
+  (when etype-in-game
+    (let ((destination nil)
+          (moving-word-at-point (etype-at-word-p point))
+          (search-string (buffer-substring-no-properties point (point))))
+      (save-excursion
         (goto-char point)
-        (unless (equal check-word (thing-at-point 'word))
-          (let* ((word (thing-at-point 'word))
-                 (len (length word))
-                 (timer (etype-search-timers point)))
+        (let* ((word (thing-at-point 'word))
+               (len (length word))
+               (timer (etype-search-timers point)))
+          (next-line)
+          (setq destination (etype-fit-word word))
+          (when destination
+            ;;              (message "word: %s moved to %d" word destination)
+            (goto-char point)
             (delete-char len)
             (insert (make-string len ? ))
-            (forward-char (- (+ 1 fill-column) len))
-            (let ((point (etype-fit-word word)))
-              (goto-char point)
-              (delete-char len)
-              (insert word)
-              (setf (timer--args timer) (list (- (point) len))))))))))
+            (next-line)
+            (backward-char len)
+            (goto-char destination)
+            (delete-char len)
+            (insert word)
+            (setf (timer--args timer) (list (- (point) len))))))
+      (when (and destination moving-word-at-point)
+        (search-forward search-string)
+        (save-excursion
+          (let ((point (point)))
+            (beginning-of-thing 'word)
+            (move-overlay etype-overlay (point) point)))))))
 
 (defun etype-random ()
   (let ((random (abs (random))))
@@ -89,16 +116,17 @@
     (when etype-in-game
       (let* ((word (etype-get-word))
              (point (random (- fill-column (length word)))))
-        (goto-char point)
-        (setq point (etype-fit-word word))
-        (when point
-          (delete-char (length word))
-          (insert word)
-          (push word etype-words-in-play)
-          (push (run-at-time
-                 (concat (number-to-string (floor (etype-random))) " sec")
-                 (etype-random) 'etype-move-word point) etype-timers)
-          (message "Spawned word %s moves every %f second" word random))))))
+        (when word
+          (goto-char point)
+          (setq point (etype-fit-word word))
+          (when point
+            (delete-char (length word))
+            (insert word)
+            (push word etype-words-in-play)
+            (push (run-at-time
+                   (concat (number-to-string (floor (etype-random))) " sec")
+                   (etype-random) 'etype-move-word point) etype-timers)
+            (message "Spawned word %s moves every %f second" word random)))))))
 
 (defun etype-loop ()
   (push (run-at-time "0 sec" 2 'etype-spawn-word) etype-timers))
