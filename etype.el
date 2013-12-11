@@ -119,6 +119,33 @@
                      (concat (number-to-string random) " sec")
                      random 'etype-move-word point word) etype-timers))))))))
 
+(defun etype-move-shooter (column)
+  (save-excursion
+    (end-of-buffer)
+    (previous-line)
+    (delete-region (point-at-bol) (point-at-eol))
+    (insert (make-string (- fill-column 5) ?-))
+    (beginning-of-line)
+    (let* ((shooter " /.\\ ")
+           (len (length shooter)))
+      (cond ((and (> column 1) (< column (- fill-column (+ len 1))))
+             (forward-char (- column 2)))
+            ((> column (- fill-column (+ len 1)))
+             (forward-char (- fill-column len))))
+      (insert shooter))))
+
+(defun etype-shoot (&optional steps)
+  (let* ((bullet-dest (+ (- etype-point-max
+                            (* (or steps 0) (+ fill-column 1)))
+                         (current-column)))
+         (overlay (make-overlay bullet-dest (+ bullet-dest 1))))
+    (etype-move-shooter (current-column))
+    (overlay-put overlay 'face (cons 'background-color "white"))
+    (sit-for (* 0.000005 (or steps 0)))
+    (delete-overlay overlay)
+    (when (< (point) bullet-dest)
+      (etype-shoot (+ (or steps 0) 1)))))
+
 (defun etype-loop ()
   (push (run-at-time "0 sec" 2 'etype-spawn-word) etype-timers))
 
@@ -129,19 +156,22 @@
           "\\<" (single-key-description last-input-event))
          etype-point-max t))
   (when etype-completing-word
+    (etype-shoot)
     (setq etype-overlay
           (make-overlay (- etype-completing-word 1) etype-completing-word))
     (overlay-put etype-overlay 'face '(:inherit isearch))))
 
 (defun etype-continue-word (key-typed)
-  (when (looking-at key-typed) (forward-char))
-  (move-overlay etype-overlay (overlay-start etype-overlay) (point))
-  (when (looking-at " ")
-    (etype-clear-word)
-    (setq etype-completing-word nil)))
+  (when (looking-at key-typed) (forward-char)
+        (move-overlay etype-overlay (overlay-start etype-overlay) (point))
+        (etype-shoot)
+        (when (looking-at " ")
+          (etype-clear-word)
+          (setq etype-completing-word nil))))
 
 (defun etype-clear-word ()
   (delete-overlay etype-overlay)
+  (etype-move-shooter (/ fill-column 2))
   (let* ((word (current-word t))
          (len (length word))
          (space (make-string len ? )))
@@ -162,10 +192,10 @@
 
 (defun etype-catch-input ()
   (interactive)
-  (let ((key-etyped (single-key-description last-input-event)))
+  (let ((key-typed (single-key-description last-input-event)))
     (if etype-completing-word
-        (etype-continue-word key-etyped)
-      (etype-search-word key-etyped))))
+        (etype-continue-word key-typed)
+      (etype-search-word key-typed))))
 
 (defun etype ()
   (interactive)
