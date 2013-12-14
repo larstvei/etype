@@ -19,6 +19,7 @@
 (defconst etype-lines-file "etype.lines")
 
 (defun etype-read-file ()
+  "Returns a vector of lines from the 'etype-lines-file'."
   (with-temp-buffer
     (insert-file-contents (expand-file-name etype-lines-file default-directory))
     (apply
@@ -27,6 +28,8 @@
       (buffer-substring-no-properties (point-min) (point-max)) "\n"))))
 
 (defun init-game ()
+  "Sets up the game grid containing 'fill-column' number of spaces and 30
+lines. Also some variables are set."
   (let ((space (make-string fill-column ? )))
     (dotimes (i 30)
       (insert space)
@@ -37,19 +40,28 @@
   (goto-char (point-min))
   (setq etype-score 0)
   (setq etype-in-game t)
-  ;; Shuffle the vector of etype-unused-words and turn it in to a list.
+  ;; Shuffle the vector returned from etype-read-file, and turns it in to a
+  ;; list.
   (setq etype-unused-words (mapcar 'eval (shuffle-vector (etype-read-file)))))
 
 (defun etype-fit-word (word)
-  (let* ((space (make-string (+ 2 (length word)) ? )))
-    (cond ((and (or (looking-back " ") (bolp)) (looking-at space))
-           (point))
-          ((search-backward space (point-at-bol) t)
-           (unless (or (looking-back " ") (bolp))
-             (forward-char))
-           (point))
-          ((search-forward space (point-at-eol) t)
-           (- (point) (- (length space) 1))))))
+  "Returns a point that a word can be inserted on the next
+line. If there is no room (a word is directly beneath it) it
+tries to find the nearest point it could fit. If there is no room
+NIL is returned, and the word is not moved."
+  (let* ((point (point))
+         (space (make-string (+ 2 (length word)) ? )))
+    (if (and (or (looking-back " ") (bolp)) (looking-at space))
+        point
+      (let* ((backward (search-backward space (point-at-bol) t))
+             (backward (and backward (+ backward 1))))
+        (goto-char point)
+        (let* ((forward (search-forward space (point-at-eol) t))
+               (forward (and forward (- forward (- (length space) 1)))))
+          (cond ((not backward) forward)
+                ((not forward) backward)
+                ((< (- point backward) (- forward point)) backward)
+                (t forward)))))))
 
 (defun etype-search-timers (word)
   (first
@@ -85,12 +97,12 @@
         (search-forward-regexp (concat "\\<" search-string))
         (save-excursion
           (let ((point (point)))
-            (beginning-of-thing 'word)
+            (backward-word)
             (move-overlay etype-overlay (point) point)))))))
 
 (defun etype-random ()
   (let ((random (abs (random))))
-    (/ random (expt 10.0 (floor (log random 10))))))
+    (* 0.5 (/ random (expt 10.0 (floor (log random 10)))))))
 
 (defun etype-get-word (&optional count)
   (let ((word (pop etype-unused-words)))
@@ -109,15 +121,16 @@
              (point (random (- fill-column (length word)))))
         (when word
           (goto-char point)
-          (setq point (etype-fit-word word))
-          (when point
-            (delete-char (length word))
-            (insert word)
-            (push word etype-words-in-play)
-            (let ((random (etype-random)))
-              (push (run-at-time
-                     (concat (number-to-string random) " sec")
-                     random 'etype-move-word point word) etype-timers))))))))
+          (let ((point (etype-fit-word word)))
+            (when point
+              (goto-char point)
+              (delete-char (length word))
+              (insert word)
+              (push word etype-words-in-play)
+              (let ((random (etype-random)))
+                (push
+                 (run-at-time random random 'etype-move-word point word)
+                 etype-timers)))))))))
 
 (defun etype-move-shooter (column)
   (save-excursion
@@ -147,7 +160,7 @@
       (etype-shoot (+ (or steps 0) 1)))))
 
 (defun etype-loop ()
-  (push (run-at-time "0 sec" 2 'etype-spawn-word) etype-timers))
+  (push (run-at-time 0 1 'etype-spawn-word) etype-timers))
 
 (defun etype-search-word (key-etyped)
   (setq etype-completing-word
