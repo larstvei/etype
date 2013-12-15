@@ -153,7 +153,7 @@ new random time."
           (push word etype-words-in-play)
           (push (run-at-time random random 'etype-move-word (point) word)
                 etype-timers)))))
-  (setf (timer--repeat-delay (last etype-timers)) (/ (etype-random) 2)))
+  (setf (timer--repeat-delay (last etype-timers)) (/ (etype-random) 10)))
 
 (defun etype-move-shooter (column)
   "Moves the shooter to COLUMN."
@@ -167,23 +167,24 @@ new random time."
            (len (length shooter)))
       (cond ((and (> column 1) (< column (- fill-column (+ len 1))))
              (forward-char (- column 2)))
-            ((> column (- fill-column (+ len 1)))
+            ((> column (- fill-column (+ len 2)))
              (forward-char (- fill-column len))))
       (insert shooter))))
 
 (defun etype-shoot (&optional steps)
   "Triggers the shooter to fire at a word. It calls itself
 recursively until the bullet hits the word."
-  (let* ((bullet-dest (+ (- etype-point-max
-                            (* (or steps 0) (+ fill-column 1)))
-                         (current-column)))
-         (overlay (make-overlay bullet-dest (+ bullet-dest 1))))
-    (etype-move-shooter (current-column))
-    (overlay-put overlay 'face (cons 'background-color "white"))
-    (sit-for (* 0.000005 (or steps 0)))
-    (delete-overlay overlay)
-    (when (< (point) bullet-dest)
-      (etype-shoot (+ (or steps 0) 1)))))
+  (unless (= 0 (current-column))
+    (let* ((bullet-dest (+ (- etype-point-max
+                              (* (or steps 0) (+ fill-column 1)))
+                           (current-column)))
+           (overlay (make-overlay bullet-dest (+ bullet-dest 1)))
+           (time (* 0.00005 (or steps 0))))
+      (etype-move-shooter (current-column))
+      (overlay-put overlay 'display "|")
+      (run-at-time (+ time 0.05) nil 'delete-overlay overlay)
+      (when (< (point) (- bullet-dest (+ fill-column 1)))
+        (run-at-time time nil 'etype-shoot (+ (or steps 0) 1))))))
 
 (defun etype-search-word (key-etyped)
   "Searches the buffer for a word that begins with the typed
@@ -262,4 +263,5 @@ inserting the typed key, it triggers a shot."
   (make-local-variable 'etype-completing-word)
   (define-key (current-local-map)
     [remap self-insert-command] 'etype-catch-input)
+  (setq cursor-type nil)
   (add-hook 'kill-buffer-hook 'etype-cleanup))
