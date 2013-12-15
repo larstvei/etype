@@ -64,12 +64,35 @@ NIL is returned, and the word is not moved."
                 (t forward)))))))
 
 (defun etype-search-timers (word)
+  "Returns the timer that is associated with WORD."
   (first
    (remove-if-not
     (lambda (timer)
       (member word (timer--args timer))) etype-timers)))
 
+(defun etype-remove-word (point word)
+  "Removes a word and replacing it with whitespace."
+  (let* ((len (length word))
+         (space (make-string len ? )))
+    (goto-char point)
+    (when (looking-at word)
+      (delete-char len)
+      (insert space))))
+
+(defun etype-insert-word (point word)
+  "Inserts word 'overwrite-mode' style, but only if the word fits on the
+line."
+  (goto-char point)
+  (let* ((destination (etype-fit-word word)))
+    (when destination
+      (goto-char destination)
+      (delete-char (length word))
+      (insert word)
+      (goto-char destination))))
+
 (defun etype-move-word (point word)
+  "Move WORD at POINT to the next line. If there is not enough space on the
+next line the word will not move."
   (when etype-in-game
     (let ((moving-word-at-point (string= word (current-word t)))
           (search-string (buffer-substring-no-properties point (point))))
@@ -79,20 +102,16 @@ NIL is returned, and the word is not moved."
           (beginning-of-buffer)
           (search-forward word etype-point-max)
           (backward-word))
+        ;; The point is now in front of the word that is to be moved.
         (let ((point (point))
               (timer (etype-search-timers word)))
           (next-line)
-          (let* ((len (length word))
-                 (space (make-string len ? ))
-                 (destination (etype-fit-word word)))
+          (let ((destination (etype-insert-word (point) word)))
             (when destination
-              (goto-char point)
-              (delete-char len)
-              (insert space)
-              (goto-char destination)
-              (delete-char len)
-              (insert word)
+              (etype-remove-word point word)
               (setf (timer--args timer) (list destination word))))))
+      ;; If we are moving the word at point the overlay must be moved and
+      ;; the point needs to be updated.
       (when moving-word-at-point
         (search-forward-regexp (concat "\\<" search-string))
         (save-excursion
@@ -101,10 +120,16 @@ NIL is returned, and the word is not moved."
             (move-overlay etype-overlay (point) point)))))))
 
 (defun etype-random ()
+  "Returns a random float, depending on the level."
   (let ((random (abs (random))))
     (* 0.5 (/ random (expt 10.0 (floor (log random 10)))))))
 
 (defun etype-get-word (&optional count)
+  "Tries to find a word in ETYPE-UNUSED-WORDS that has a
+different capital letter from all words in
+ETYPE-WORDS-IN-PLAY. It does not try very hard, and gives up
+after checking 5 words - this is done to give a natural slow down
+when there are a lot of words in play."
   (let ((word (pop etype-unused-words)))
     (if (null (member
                (string-to-char word)
@@ -115,24 +140,23 @@ NIL is returned, and the word is not moved."
         (etype-get-word (if count (+ count 1) 1))))))
 
 (defun etype-spawn-word ()
+  "This function spawns a word in the game. It does this by
+finding a word and inserting it where it fits. It also updates
+the timer which is associated with this function, setting it to a
+new random time."
   (save-excursion
     (when etype-in-game
       (let* ((word (etype-get-word))
-             (point (random (- fill-column (length word)))))
-        (when word
-          (goto-char point)
-          (let ((point (etype-fit-word word)))
-            (when point
-              (goto-char point)
-              (delete-char (length word))
-              (insert word)
-              (push word etype-words-in-play)
-              (let ((random (etype-random)))
-                (push
-                 (run-at-time random random 'etype-move-word point word)
-                 etype-timers)))))))))
+             (point (random (- fill-column (length word))))
+             (random (etype-random)))
+        (when (and word (etype-insert-word point word))
+          (push word etype-words-in-play)
+          (push (run-at-time random random 'etype-move-word (point) word)
+                etype-timers)))))
+  (setf (timer--repeat-delay (last etype-timers)) (/ (etype-random) 2)))
 
 (defun etype-move-shooter (column)
+  "Moves the shooter to COLUMN."
   (save-excursion
     (end-of-buffer)
     (previous-line)
@@ -148,6 +172,8 @@ NIL is returned, and the word is not moved."
       (insert shooter))))
 
 (defun etype-shoot (&optional steps)
+  "Triggers the shooter to fire at a word. It calls itself
+recursively until the bullet hits the word."
   (let* ((bullet-dest (+ (- etype-point-max
                             (* (or steps 0) (+ fill-column 1)))
                          (current-column)))
@@ -159,10 +185,10 @@ NIL is returned, and the word is not moved."
     (when (< (point) bullet-dest)
       (etype-shoot (+ (or steps 0) 1)))))
 
-(defun etype-loop ()
-  (push (run-at-time 0 1 'etype-spawn-word) etype-timers))
-
 (defun etype-search-word (key-etyped)
+  "Searches the buffer for a word that begins with the typed
+key. If a word is found a shot is fired at it, and a overlay is
+created."
   (setq etype-completing-word
         (search-forward-regexp
          (concat
@@ -175,6 +201,8 @@ NIL is returned, and the word is not moved."
     (overlay-put etype-overlay 'face '(:inherit isearch))))
 
 (defun etype-continue-word (key-typed)
+  "Moves the point forward if the typed key is the char in front of the
+point. If the word is complete the word is cleared."
   (when (looking-at key-typed) (forward-char)
         (move-overlay etype-overlay (overlay-start etype-overlay) (point))
         (etype-shoot)
@@ -183,27 +211,27 @@ NIL is returned, and the word is not moved."
           (setq etype-completing-word nil))))
 
 (defun etype-clear-word ()
-  (delete-overlay etype-overlay)
-  (etype-move-shooter (/ fill-column 2))
+  "Removes a word from the game, and updating score."
   (let* ((word (current-word t))
-         (len (length word))
-         (space (make-string len ? )))
+         (timer (etype-search-timers (current-word t))))
+    (cancel-timer timer)
+    (setq etype-timers (remove timer etype-timers))
+    (delete-overlay etype-overlay)
+    (etype-move-shooter (/ fill-column 2))
     (backward-word)
-    (let ((timer (etype-search-timers word)))
-      (cancel-timer timer)
-      (setq etype-timers (remove timer etype-timers)))
+    (etype-remove-word (point) word)
     (setq etype-words-in-play
           (remove word etype-words-in-play))
     (add-to-list 'etype-unused-words word t)
-    (delete-char len)
-    (insert space)
-    (incf etype-score (* len 1.5)))
-  (search-forward "Score: ")
-  (delete-char (- (point-max) (point)))
-  (insert (number-to-string etype-score))
-  (goto-char (point-min)))
+    (incf etype-score (* (length word) 1.5))
+    (search-forward "Score: ")
+    (delete-char (- (point-max) (point)))
+    (insert (number-to-string etype-score))
+    (goto-char (point-min))))
 
 (defun etype-catch-input ()
+  "'self-insert-command' is remapped to this function. Instead of
+inserting the typed key, it triggers a shot."
   (interactive)
   (let ((key-typed (single-key-description last-input-event)))
     (if etype-completing-word
@@ -211,13 +239,15 @@ NIL is returned, and the word is not moved."
       (etype-search-word key-typed))))
 
 (defun etype ()
+  "Starts a game of Etype."
   (interactive)
   (switch-to-buffer "Etype")
   (etype-mode)
   (init-game)
-  (etype-loop))
+  (push (run-at-time 0 (etype-random) 'etype-spawn-word) etype-timers))
 
 (defun etype-cleanup ()
+  "Cancels all etype-timers."
   (mapc 'cancel-timer etype-timers))
 
 (define-derived-mode etype-mode nil "Etype"
