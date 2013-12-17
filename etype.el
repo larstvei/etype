@@ -16,6 +16,8 @@
 
 (defvar etype-completing-word nil)
 
+(defvar etype-level 1)
+
 (defconst etype-lines-file "etype.lines")
 
 (defun etype-read-file ()
@@ -35,14 +37,35 @@ lines. Also some variables are set."
       (insert space)
       (newline))
     (setq etype-point-max (point))
-    (insert (make-string fill-column ?-))
-    (insert "\nScore: 0"))
+    (let* ((score "\nScore: 0")
+           (level "Level: 1"))
+      (insert (make-string fill-column ?-))
+      (insert score)
+      (insert (make-string
+               (- fill-column
+                  (+ (length score) (length level))) ? ))
+      (insert level)))
   (goto-char (point-min))
+  (setq cursor-type nil)
   (setq etype-score 0)
   (setq etype-in-game t)
   ;; Shuffle the vector returned from etype-read-file, and turns it in to a
   ;; list.
   (setq etype-unused-words (mapcar 'eval (shuffle-vector (etype-read-file)))))
+
+(defun etype-increase-level ()
+  "Increases the level."
+  (interactive)
+  (when (< etype-level 10)
+    (incf etype-level)
+    (etype-update-level)))
+
+(defun etype-decrease-level ()
+  "Decreases the level."
+  (interactive)
+  (when (> etype-level 1)
+    (decf etype-level)
+    (etype-update-level)))
 
 (defun etype-fit-word (word)
   "Returns a point that a word can be inserted on the next
@@ -122,7 +145,7 @@ next line the word will not move."
 (defun etype-random ()
   "Returns a random float, depending on the level."
   (let ((random (abs (random))))
-    (* 0.5 (/ random (expt 10.0 (floor (log random 10)))))))
+    (/ random (expt 10.0 (floor (log random 10))))))
 
 (defun etype-get-word (&optional count)
   "Tries to find a word in ETYPE-UNUSED-WORDS that has a
@@ -148,12 +171,12 @@ new random time."
     (when etype-in-game
       (let* ((word (etype-get-word))
              (point (random (- fill-column (length word))))
-             (random (etype-random)))
+             (random (/ (etype-random) etype-level)))
         (when (and word (etype-insert-word point word))
           (push word etype-words-in-play)
           (push (run-at-time random random 'etype-move-word (point) word)
                 etype-timers)))))
-  (setf (timer--repeat-delay (last etype-timers)) (/ (etype-random) 10)))
+  (setf (timer--repeat-delay (last etype-timers)) (/ (etype-random) etype-level)))
 
 (defun etype-move-shooter (column)
   "Moves the shooter to COLUMN."
@@ -211,6 +234,19 @@ point. If the word is complete the word is cleared."
           (etype-clear-word)
           (setq etype-completing-word nil))))
 
+(defun etype-update-score (word)
+  "Updates the score."
+  (save-excursion
+    (incf etype-score (* (length word) etype-level))
+    (re-search-forward "Score: [0-9]+")
+    (replace-match (concat "Score: " (number-to-string etype-score)))))
+
+(defun etype-update-level ()
+  "Updates the level."
+  (save-excursion
+    (re-search-forward "Level: [0-9]+")
+    (replace-match (concat "Level: " (number-to-string etype-level)))))
+
 (defun etype-clear-word ()
   "Removes a word from the game, and updating score."
   (let* ((word (current-word t))
@@ -224,10 +260,7 @@ point. If the word is complete the word is cleared."
     (setq etype-words-in-play
           (remove word etype-words-in-play))
     (add-to-list 'etype-unused-words word t)
-    (incf etype-score (* (length word) 1.5))
-    (search-forward "Score: ")
-    (delete-char (- (point-max) (point)))
-    (insert (number-to-string etype-score))
+    (etype-update-score word)
     (goto-char (point-min))))
 
 (defun etype-catch-input ()
@@ -261,7 +294,12 @@ inserting the typed key, it triggers a shot."
   (make-local-variable 'etype-unused-words)
   (make-local-variable 'etype-words-in-play)
   (make-local-variable 'etype-completing-word)
+  (make-local-variable 'etype-level)
+
   (define-key (current-local-map)
     [remap self-insert-command] 'etype-catch-input)
-  (setq cursor-type nil)
+
+  (local-set-key (kbd "<up>")   'etype-increase-level)
+  (local-set-key (kbd "<down>") 'etype-decrease-level)
+
   (add-hook 'kill-buffer-hook 'etype-cleanup))
