@@ -1,4 +1,9 @@
 (require 'cl)
+(require 'etype-lines)
+
+(defcustom etype-word-directory nil
+  "A path to a directory that contains a file 'etype.lines'. If
+  NIL a standard set of words will be used in the game.")
 
 (defvar etype-words-in-play nil)
 
@@ -22,12 +27,15 @@
 
 (defun etype-read-file ()
   "Returns a vector of lines from the 'etype-lines-file'."
-  (with-temp-buffer
-    (insert-file-contents (expand-file-name etype-lines-file default-directory))
-    (apply
-     'vector
-     (split-string
-      (buffer-substring-no-properties (point-min) (point-max)) "\n"))))
+  (if etype-word-directory
+      (with-temp-buffer
+        (insert-file-contents
+         (expand-file-name etype-lines-file etype-word-directory))
+        (apply
+         'vector
+         (split-string
+          (buffer-substring-no-properties (point-min) (point-max)) "\n")))
+    etype-word-vector))
 
 (defun init-game ()
   "Sets up the game grid containing 'fill-column' number of spaces and 30
@@ -113,6 +121,16 @@ line."
       (insert word)
       (goto-char destination))))
 
+(defun etype-next-line ()
+  (let ((column (current-column)))
+    (forward-line)
+    (forward-char column)))
+
+(defun etype-previous-line ()
+  (let ((column (current-column)))
+    (forward-line -1)
+    (forward-char column)))
+
 (defun etype-move-word (point word)
   "Move WORD at POINT to the next line. If there is not enough space on the
 next line the word will not move."
@@ -122,13 +140,13 @@ next line the word will not move."
       (save-excursion
         (goto-char point)
         (unless (looking-at word)
-          (beginning-of-buffer)
+          (goto-char (point-min))
           (search-forward word etype-point-max)
           (backward-word))
         ;; The point is now in front of the word that is to be moved.
         (let ((point (point))
               (timer (etype-search-timers word)))
-          (next-line)
+          (etype-next-line)
           (let ((destination (etype-insert-word (point) word)))
             (when destination
               (etype-remove-word point word)
@@ -143,8 +161,9 @@ next line the word will not move."
             (move-overlay etype-overlay (point) point)))))))
 
 (defun etype-random ()
-  "Returns a random float, depending on the level."
-  (let ((random (abs (random))))
+  "Returns a random float between 1 and 10, depending on the
+level."
+  (let* ((random (abs (random))))
     (/ random (expt 10.0 (floor (log random 10))))))
 
 (defun etype-get-word (&optional count)
@@ -162,7 +181,7 @@ when there are a lot of words in play."
       (unless (and count (> count 5))
         (etype-get-word (if count (+ count 1) 1))))))
 
-(defun etype-spawn-word ()
+(defun etype-spawn-word (&optional recur)
   "This function spawns a word in the game. It does this by
 finding a word and inserting it where it fits. It also updates
 the timer which is associated with this function, setting it to a
@@ -171,18 +190,22 @@ new random time."
     (when etype-in-game
       (let* ((word (etype-get-word))
              (point (random (- fill-column (length word))))
-             (random (/ (etype-random) etype-level)))
+             (random (etype-random)))
         (when (and word (etype-insert-word point word))
           (push word etype-words-in-play)
           (push (run-at-time random random 'etype-move-word (point) word)
-                etype-timers)))))
-  (setf (timer--repeat-delay (last etype-timers)) (/ (etype-random) etype-level)))
+                etype-timers)))
+      (when recur
+        (run-at-time (- 30 (* (etype-random) etype-level)) nil 'etype-spawn-word t)
+        (dotimes (i (+ (+ (random 10) etype-level)))
+          (run-at-time (- 30 (* (etype-random) etype-level))
+                       nil 'etype-spawn-word))))))
 
 (defun etype-move-shooter (column)
   "Moves the shooter to COLUMN."
   (save-excursion
-    (end-of-buffer)
-    (previous-line)
+    (goto-char (point-max))
+    (forward-line -1)
     (delete-region (point-at-bol) (point-at-eol))
     (insert (make-string (- fill-column 5) ?-))
     (beginning-of-line)
@@ -278,7 +301,9 @@ inserting the typed key, it triggers a shot."
   (switch-to-buffer "Etype")
   (etype-mode)
   (init-game)
-  (push (run-at-time 0 (etype-random) 'etype-spawn-word) etype-timers))
+  (run-at-time 0 nil 'etype-spawn-word t)
+  (dotimes (i 10)
+    (run-at-time (random 10) nil 'etype-spawn-word)))
 
 (defun etype-cleanup ()
   "Cancels all etype-timers."
