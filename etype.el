@@ -59,21 +59,27 @@ lines. Also some variables are set."
   (setq etype-in-game t)
   ;; Shuffle the vector returned from etype-read-file, and turns it in to a
   ;; list.
-  (setq etype-unused-words (mapcar 'eval (shuffle-vector (etype-read-file)))))
+  (setq etype-unused-words
+        (mapcar 'eval (shuffle-vector (etype-read-file))))
+  (read-only-mode 1))
 
 (defun etype-increase-level ()
   "Increases the level."
   (interactive)
   (when (< etype-level 10)
+    (setq inhibit-read-only t)
     (incf etype-level)
-    (etype-update-level)))
+    (etype-update-level)
+    (setq inhibit-read-only nil)))
 
 (defun etype-decrease-level ()
   "Decreases the level."
   (interactive)
   (when (> etype-level 1)
+    (setq inhibit-read-only t)
     (decf etype-level)
-    (etype-update-level)))
+    (etype-update-level)
+    (setq inhibit-read-only nil)))
 
 (defun etype-fit-word (word)
   "Returns a point that a word can be inserted on the next
@@ -135,6 +141,7 @@ line."
   "Move WORD at POINT to the next line. If there is not enough space on the
 next line the word will not move."
   (when etype-in-game
+    (setq inhibit-read-only t)
     (let ((moving-word-at-point (string= word (current-word t)))
           (search-string (buffer-substring-no-properties point (point))))
       (save-excursion
@@ -158,7 +165,8 @@ next line the word will not move."
         (save-excursion
           (let ((point (point)))
             (backward-word)
-            (move-overlay etype-overlay (point) point)))))))
+            (move-overlay etype-overlay (point) point)))))
+    (setq inhibit-read-only nil)))
 
 (defun etype-random ()
   "Returns a random float between 1 and 10, depending on the
@@ -188,6 +196,7 @@ the timer which is associated with this function, setting it to a
 new random time."
   (save-excursion
     (when etype-in-game
+      (setq inhibit-read-only t)
       (let* ((word (etype-get-word))
              (point (random (- fill-column (length word))))
              (random (etype-random)))
@@ -199,7 +208,8 @@ new random time."
         (run-at-time (- 30 (* (etype-random) etype-level)) nil 'etype-spawn-word t)
         (dotimes (i (+ (+ (random 10) etype-level)))
           (run-at-time (- 30 (* (etype-random) etype-level))
-                       nil 'etype-spawn-word))))))
+                       nil 'etype-spawn-word)))
+      (setq inhibit-read-only nil))))
 
 (defun etype-move-shooter (column)
   "Moves the shooter to COLUMN."
@@ -220,6 +230,7 @@ new random time."
 (defun etype-shoot (&optional steps)
   "Triggers the shooter to fire at a word. It calls itself
 recursively until the bullet hits the word."
+  (setq inhibit-read-only t)
   (unless (= 0 (current-column))
     (let* ((bullet-dest (+ (- etype-point-max
                               (* (or steps 0) (+ fill-column 1)))
@@ -230,7 +241,8 @@ recursively until the bullet hits the word."
       (overlay-put overlay 'display "|")
       (run-at-time (+ time 0.05) nil 'delete-overlay overlay)
       (when (< (point) (- bullet-dest (+ fill-column 1)))
-        (run-at-time time nil 'etype-shoot (+ (or steps 0) 1))))))
+        (run-at-time time nil 'etype-shoot (+ (or steps 0) 1)))))
+  (setq inhibit-read-only nil))
 
 (defun etype-search-word (key-etyped)
   "Searches the buffer for a word that begins with the typed
@@ -242,20 +254,24 @@ created."
           "\\<" (single-key-description last-input-event))
          etype-point-max t))
   (when etype-completing-word
+    (setq inhibit-read-only t)
     (etype-shoot)
     (setq etype-overlay
           (make-overlay (- etype-completing-word 1) etype-completing-word))
-    (overlay-put etype-overlay 'face '(:inherit isearch))))
+    (overlay-put etype-overlay 'face '(:inherit isearch))
+    (setq inhibit-read-only nil)))
 
 (defun etype-continue-word (key-typed)
   "Moves the point forward if the typed key is the char in front of the
 point. If the word is complete the word is cleared."
   (when (looking-at key-typed) (forward-char)
+        (setq inhibit-read-only t)
         (move-overlay etype-overlay (overlay-start etype-overlay) (point))
         (etype-shoot)
         (when (looking-at " ")
           (etype-clear-word)
-          (setq etype-completing-word nil))))
+          (setq etype-completing-word nil))
+        (setq inhibit-read-only nil)))
 
 (defun etype-update-score (word)
   "Updates the score."
@@ -272,6 +288,7 @@ point. If the word is complete the word is cleared."
 
 (defun etype-clear-word ()
   "Removes a word from the game, and updating score."
+  (setq inhibit-read-only t)
   (let* ((word (current-word t))
          (timer (etype-search-timers (current-word t))))
     (cancel-timer timer)
@@ -284,7 +301,8 @@ point. If the word is complete the word is cleared."
           (remove word etype-words-in-play))
     (add-to-list 'etype-unused-words word t)
     (etype-update-score word)
-    (goto-char (point-min))))
+    (goto-char (point-min)))
+  (setq inhibit-read-only nil))
 
 (defun etype-catch-input ()
   "'self-insert-command' is remapped to this function. Instead of
