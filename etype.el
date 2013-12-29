@@ -142,6 +142,8 @@ line."
 next line the word will not move."
   (when etype-in-game
     (setq inhibit-read-only t)
+    (when etype-completing-word
+      (goto-char etype-completing-word))
     (let ((moving-word-at-point (string= word (current-word t)))
           (search-string (buffer-substring-no-properties point (point))))
       (save-excursion
@@ -162,6 +164,7 @@ next line the word will not move."
       ;; the point needs to be updated.
       (when moving-word-at-point
         (search-forward-regexp (concat "\\<" search-string))
+        (setq etype-completing-word (point))
         (save-excursion
           (let ((point (point)))
             (backward-word)
@@ -264,7 +267,9 @@ created."
 (defun etype-continue-word (key-typed)
   "Moves the point forward if the typed key is the char in front of the
 point. If the word is complete the word is cleared."
+  (goto-char etype-completing-word)
   (when (looking-at key-typed) (forward-char)
+        (setq etype-completing-word (point))
         (setq inhibit-read-only t)
         (move-overlay etype-overlay (overlay-start etype-overlay) (point))
         (etype-shoot)
