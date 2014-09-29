@@ -202,19 +202,17 @@ random time between 1 and 10 seconds."
             etype-timers))))
 
 (defun etype-spawn-wave (&optional recur)
-  ""
+  "Spawn multiple words according to ETYPE-LEVEL."
   (save-excursion
-    (when etype-in-game
-      (let ((inhibit-read-only t))
+    (let ((inhibit-read-only t))
+      (when (< recur (etype-wave-limit))
         (etype-spawn-word)
-        (when recur
-          (run-at-time (etype-random-spawn-time) nil 'etype-spawn-wave t)
-          (dotimes (i (+ (random 10) etype-level))
-            (run-at-time (etype-random-spawn-time)
-                         nil 'etype-spawn-wave)))))))
+        (run-at-time (/ (etype-random) 5) nil
+                     'etype-spawn-wave (1+ recur))))))
 
-(defun etype-random-spawn-time ()
-  (- 30 (* (etype-random) (expt etype-level 1.2))))
+(defun etype-wave-limit ()
+  (+ (* etype-level etype-level) 5
+     (if (plusp etype-score) (ceiling (log etype-score)) 0)))
 
 (defun etype-move-shooter (column)
   "Moves the shooter to COLUMN."
@@ -308,7 +306,7 @@ point. If the word is complete the word is cleared."
     (etype-update-score word)
     (goto-char (point-min))
     (unless etype-words-in-play
-      (etype-spawn-wave t))))
+      (etype-spawn-wave 0))))
 
 (defun etype-catch-input ()
   "'self-insert-command' is remapped to this function. Instead of
@@ -325,9 +323,7 @@ inserting the typed key, it triggers a shot."
   (switch-to-buffer "Etype")
   (etype-mode)
   (init-game)
-  (run-at-time 0 nil 'etype-spawn-wave t)
-  (dotimes (i 10)
-    (run-at-time (random 10) nil 'etype-spawn-wave)))
+  (run-at-time 0 nil 'etype-spawn-wave 0))
 
 (defun etype-cleanup ()
   "Cancels all etype-timers."
