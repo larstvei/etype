@@ -28,6 +28,15 @@ line that will be used in the game."
 
 (defvar etype-level 1)
 
+(defvar etype-inhibit-score nil)
+
+(defvar etype-game-over-string
+  '("_____ ____  _      _____   ____  _     _____ ____"
+    "/  __//  _ \\/ \\__/|/  __/  /  _ \\/ \\ |\\/  __//  __\\"
+    "| |  _| / \\|| |\\/|||  \\    | / \\|| | //|  \\  |  \\/|"
+    "| |_//| |-||| |  |||  /_   | \\_/|| \\// |  /_ |    /"
+    "\\____\\\\_/ \\|\\_/  \\|\\____\\  \\____/\\__/  \\____\\\\_/\\_\\"))
+
 (defun etype-read-file ()
   "Returns a vector of lines from the 'etype-lines-file'."
   (with-temp-buffer
@@ -40,6 +49,7 @@ line that will be used in the game."
 (defun init-game ()
   "Sets up the game grid containing 'fill-column' number of spaces and 30
 lines. Also some variables are set."
+  (delete-region (point-min) (point-max))
   (let ((space (make-string fill-column ? )))
     (dotimes (i 30)
       (insert space)
@@ -61,6 +71,22 @@ lines. Also some variables are set."
   ;; list.
   (setq etype-unused-words (etype-read-file))
   (read-only-mode 1))
+
+(defun etype-draw-game-over ()
+  (let ((inhibit-read-only t))
+    (loop for str in etype-game-over-string
+          for i from 4 do
+          (goto-line i)
+          (let* ((len (length str))
+                 (beg (+ (point) (- (/ fill-column 2) (/ len 2)))))
+            (goto-char beg)
+            (delete-char len)
+            (insert str)))))
+
+(defun etype-game-over ()
+  (etype-cleanup)
+  (etype-draw-game-over)
+  (setq etype-inhibit-score t))
 
 (defun etype-increase-level ()
   "Increases the level."
@@ -154,9 +180,11 @@ next line the word will not move."
                 (timer (etype-search-timers word)))
             (etype-next-line)
             (let ((destination (etype-insert-word (point) word)))
-              (when destination
-                (etype-remove-word point word)
-                (setf (timer--args timer) (list destination word))))))
+              (cond (destination
+                     (etype-remove-word point word)
+                     (setf (timer--args timer) (list destination word)))
+                    ((< (- etype-point-max fill-column 2) point)
+                     (etype-game-over))))))
         ;; If we are moving the word at point the overlay must be moved and
         ;; the point needs to be updated.
         (when moving-word-at-point
@@ -195,7 +223,7 @@ object is added to ETYPE-TIMERS, invoking ETYPE-MOVE-WORD at a
 random time between 1 and 10 seconds."
   (let* ((word (etype-get-word))
          (point (1+ (random (- fill-column (1+ (length word))))))
-         (random (etype-random)))
+         (random (- (etype-random) (/ etype-level 15.0))))
     (when (and word (etype-insert-word point word))
       (push word etype-words-in-play)
       (push (run-at-time random random 'etype-move-word (point) word)
@@ -207,7 +235,7 @@ random time between 1 and 10 seconds."
     (let ((inhibit-read-only t))
       (when (< recur limit)
         (etype-spawn-word)
-        (run-at-time (/ (etype-random) etype-level) nil
+        (run-at-time (/ (etype-random) (ceiling (/ (* etype-level etype-level) 2.0))) nil
                      'etype-spawn-wave (1+ recur) limit)))))
 
 (defun etype-wave-limit ()
@@ -235,7 +263,6 @@ and current score."
 (defun etype-shoot (&optional steps)
   "Triggers the shooter to fire at a word. It calls itself
 recursively until the bullet hits the word."
-
   (unless (= 0 (current-column))
     (let* ((inhibit-read-only t)
            (bullet-dest (+ (- etype-point-max
@@ -305,9 +332,10 @@ point. If the word is complete the word is cleared."
     (etype-remove-word (point) word)
     (setq etype-words-in-play
           (remove word etype-words-in-play))
-    (etype-update-score word)
+    (unless etype-inhibit-score
+      (etype-update-score word))
     (goto-char (point-min))
-    (unless etype-words-in-play
+    (unless (remove-if (lambda (x) (string= x "")) etype-words-in-play)
       (etype-spawn-wave 0 (etype-wave-limit)))))
 
 (defun etype-catch-input ()
@@ -334,14 +362,16 @@ inserting the typed key, it triggers a shot."
 (define-derived-mode etype-mode nil "Etype"
   "A mode for playing Etype."
   (dolist (var '(etype-score
+                 etype-level
                  etype-timers
                  etype-overlay
                  etype-in-game
                  etype-point-max
                  etype-unused-words
                  etype-words-in-play
+                 etype-inhibit-score
                  etype-completing-word
-                 etype-level))
+                 etype-game-over-string))
     (make-local-variable var))
 
   (define-key (current-local-map)
@@ -351,3 +381,5 @@ inserting the typed key, it triggers a shot."
   (local-set-key (kbd "<down>") 'etype-decrease-level)
 
   (add-hook 'kill-buffer-hook 'etype-cleanup))
+
+(provide 'etype)
