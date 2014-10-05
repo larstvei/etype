@@ -113,12 +113,15 @@ lines. Also some variables are set."
             (etype-insert-centered str)
             finally
             (forward-line)
-            (etype-insert-centered "Type Game Over to start new game.")))))
+            (etype-insert-centered "Type > game over < to start new game."))
+      (push "game" etype-words-in-play)
+      (push "over" etype-words-in-play))))
 
 (defun etype-game-over ()
   (etype-cleanup)
   (etype-draw-game-over)
-  (setq etype-game-is-over t))
+  (setq etype-game-is-over t
+        etype-completing-word nil))
 
 (defun etype-increase-level ()
   "Increases the level."
@@ -318,8 +321,8 @@ created."
     "\\<" (single-key-description last-input-event))
    etype-point-max t)
   (when (member (substring-no-properties (word-at-point))
-              etype-words-in-play)
-      (setq etype-completing-word (point)))
+                etype-words-in-play)
+    (setq etype-completing-word (point)))
   (when etype-completing-word
     (let ((inhibit-read-only t))
       (etype-shoot)
@@ -360,8 +363,9 @@ point. If the word is complete the word is cleared."
   (let* ((inhibit-read-only t)
          (word (current-word t))
          (timer (etype-search-timers (current-word t))))
-    (cancel-timer timer)
-    (setq etype-timers (remove timer etype-timers))
+    (when timer
+      (cancel-timer timer)
+      (setq etype-timers (remove timer etype-timers)))
     (delete-overlay etype-overlay)
     (etype-move-shooter (/ fill-column 2))
     (backward-word)
@@ -372,7 +376,9 @@ point. If the word is complete the word is cleared."
       (etype-update-score word))
     (goto-char (point-min))
     (unless (remove-if (lambda (x) (string= x "")) etype-words-in-play)
-      (etype-spawn-wave 0 (etype-wave-limit)))))
+      (etype-spawn-wave 0 (etype-wave-limit)))
+    (when (and etype-game-is-over (string= word "over"))
+      (etype))))
 
 (defun etype-catch-input ()
   "'self-insert-command' is remapped to this function. Instead of
@@ -382,6 +388,10 @@ inserting the typed key, it triggers a shot."
     (if etype-completing-word
         (etype-continue-word key-typed)
       (etype-search-word key-typed))))
+
+(defun etype-cleanup ()
+  "Cancels all etype-timers."
+  (mapc 'cancel-timer etype-timers))
 
 (defun etype ()
   "Starts a game of Etype."
@@ -393,10 +403,6 @@ inserting the typed key, it triggers a shot."
     (etype-mode))
   (init-game)
   (etype-spawn-wave 0 (etype-wave-limit)))
-
-(defun etype-cleanup ()
-  "Cancels all etype-timers."
-  (mapc 'cancel-timer etype-timers))
 
 (define-derived-mode etype-mode nil "Etype"
   "A mode for playing Etype."
