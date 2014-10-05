@@ -1,10 +1,9 @@
-etype
+Etype
 =====
 
-A typing game for Emacs.
+This is a typing game for Emacs. It is heavily inspired by
+[Z-Type](http://phoboslab.org/ztype/). To play run `M-x etype` and start
+writing the words you see.
 
-Etype is a game written for Emacs, and is heavily inspired by
-[Z-Type](http://phoboslab.org/ztype/).
 
-##Not yet playable.
-=======
+
