@@ -59,6 +59,11 @@ line that will be used in the game."
     "| |_//| |-||| |  |||  /_   | \\_/|| \\// |  /_ |    /"
     "\\____\\\\_/ \\|\\_/  \\|\\____\\  \\____/\\__/  \\____\\\\_/\\_\\"))
 
+(defvar etype-new-game-string
+  '("| '_ \\ / _ \\ \\ /\\ / /"
+    "| | | |  __/\\ V  V / "
+    "|_| |_|\\___| \\_/\\_/  "))
+
 (defun etype-read-file ()
   "Returns a vector of lines from the 'etype-lines-file'."
   (with-temp-buffer
@@ -68,7 +73,18 @@ line that will be used in the game."
      (split-string
       (buffer-substring-no-properties (point-min) (point-max)) "\n"))))
 
-(defun init-game ()
+(defun etype-menu (&optional game-over-p)
+  ;; Menu stack
+  (let* ((margin 2)
+         (game-over-line (+ margin margin))
+         (new-game-line (+ game-over-line
+                           (length etype-game-over-string)
+                           margin)))
+    (when game-over-p
+      (etype-draw etype-game-over-string game-over-line))
+    (etype-draw etype-new-game-string new-game-line " new ")))
+
+(defun etype-init-game ()
   "Sets up the game grid containing 'fill-column' number of spaces and 30
 lines. Also some variables are set."
   (let ((inhibit-read-only t)
@@ -89,13 +105,13 @@ lines. Also some variables are set."
   (goto-char (point-min))
   (setq cursor-type nil
         etype-score 0
+        etype-level 1
         etype-in-game t
-        ;; Shuffle the vector returned from etype-read-file, and turns it in to a
-        ;; list.
-        etype-game-is-over nil)
+        etype-game-is-over nil
+        etype-words-in-play nil)
   (unless etype-unused-words
     (setq etype-unused-words (etype-read-file)))
-  (read-only-mode 1))
+  (etype-spawn-wave 0 (etype-wave-limit)))
 
 (defun etype-insert-centered (str)
   (let* ((len (length str))
@@ -104,24 +120,38 @@ lines. Also some variables are set."
     (delete-char len)
     (insert str)))
 
-(defun etype-draw-game-over ()
+;; (defun etype-draw-game-over ()
+;;   (save-excursion
+;;     (let ((inhibit-read-only t))
+;;       (loop for str in etype-game-over-string
+;;             for i from 4 do
+;;             (goto-line i)
+;;             (etype-insert-centered str)
+;;             finally
+;;             (forward-line)
+;;             (etype-insert-centered "Type > game over < to start new game."))
+;;       (push "game" etype-words-in-play)
+;;       (push "over" etype-words-in-play))))
+
+(defun etype-draw (strings line &optional word)
   (save-excursion
     (let ((inhibit-read-only t))
-      (loop for str in etype-game-over-string
-            for i from 4 do
+      (loop for str in strings
+            for i from line do
             (goto-line i)
             (etype-insert-centered str)
             finally
             (forward-line)
-            (etype-insert-centered "Type > game over < to start new game."))
-      (push "game" etype-words-in-play)
-      (push "over" etype-words-in-play))))
+            (when word
+              (etype-insert-centered word)
+              (push (replace-regexp-in-string " "  "" word)
+                    etype-words-in-play))))))
 
 (defun etype-game-over ()
   (etype-cleanup)
-  (etype-draw-game-over)
   (setq etype-game-is-over t
-        etype-completing-word nil))
+        etype-completing-word nil)
+  (etype-menu t))
 
 (defun etype-increase-level ()
   "Increases the level."
@@ -198,7 +228,7 @@ line."
 (defun etype-move-word (point word)
   "Move WORD at POINT to the next line. If there is not enough space on the
 next line the word will not move."
-  (when etype-in-game
+  (when (and etype-in-game (not etype-game-is-over))
     (let ((inhibit-read-only t))
       (when etype-completing-word
         (goto-char etype-completing-word))
@@ -320,9 +350,11 @@ created."
    (concat
     "\\<" (single-key-description last-input-event))
    etype-point-max t)
-  (when (member (substring-no-properties (word-at-point))
-                etype-words-in-play)
-    (setq etype-completing-word (point)))
+  (let ((word (word-at-point)))
+    (when (and word
+               (member (substring-no-properties word)
+                       etype-words-in-play))
+      (setq etype-completing-word (point))))
   (when etype-completing-word
     (let ((inhibit-read-only t))
       (etype-shoot)
@@ -343,7 +375,7 @@ point. If the word is complete the word is cleared."
            (when (looking-at " ")
              (etype-clear-word)
              (setq etype-completing-word nil)))
-          ((not etype-game-is-over) (etype-spawn-word)))))
+          ((not etype-game-is-over) (etype-spawn-wave 0 etype-level)))))
 
 (defun etype-update-score (word)
   "Updates the score."
@@ -373,12 +405,21 @@ point. If the word is complete the word is cleared."
     (setq etype-words-in-play
           (remove word etype-words-in-play))
     (unless etype-game-is-over
-      (etype-update-score word))
+      (etype-update-score word))    
+    (cond ((and etype-game-is-over (string= word "new"))
+           (etype-init-game))
+          ((and (not etype-game-is-over)
+                (remove-if (lambda (x) (string= x "")) etype-words-in-play))
+           (etype-spawn-wave 0 (etype-wave-limit))))
     (goto-char (point-min))
-    (unless (remove-if (lambda (x) (string= x "")) etype-words-in-play)
-      (etype-spawn-wave 0 (etype-wave-limit)))
-    (when (and etype-game-is-over (string= word "over"))
-      (etype))))
+    ;; (unless etype-game-is-over
+    ;;   (etype-update-score word))
+    ;; (unless (remove-if (lambda (x) (string= x ""))
+    ;;                    etype-words-in-play)
+    ;;   (etype-spawn-wave 0 (etype-wave-limit)))
+    ;; (when (and etype-game-is-over (string= word "over"))
+    ;;   (etype))
+    ))
 
 (defun etype-catch-input ()
   "'self-insert-command' is remapped to this function. Instead of
@@ -396,13 +437,9 @@ inserting the typed key, it triggers a shot."
 (defun etype ()
   "Starts a game of Etype."
   (interactive)
-  (let ((buf-lst (buffer-list)))
-    (switch-to-buffer "Etype")
-    (if (equal buf-lst (buffer-list))
-        (etype-cleanup))
-    (etype-mode))
-  (init-game)
-  (etype-spawn-wave 0 (etype-wave-limit)))
+  (switch-to-buffer "Etype")
+  (etype-mode)
+  (etype-init-game))
 
 (define-derived-mode etype-mode nil "Etype"
   "A mode for playing Etype."
@@ -419,11 +456,11 @@ inserting the typed key, it triggers a shot."
                  etype-game-is-over))
     (make-local-variable var))
 
+  (read-only-mode 1)
   (define-key (current-local-map)
     [remap self-insert-command] 'etype-catch-input)
 
   (local-set-key (kbd "<up>")   'etype-increase-level)
-  (local-set-key (kbd "<down>") 'etype-decrease-level)
 
   (add-hook 'kill-buffer-hook 'etype-cleanup))
 
