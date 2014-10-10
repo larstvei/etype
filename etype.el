@@ -21,7 +21,8 @@
 ;; with Etype.  If not, see <http://www.gnu.org/licenses/>.
 
 (eval-when-compile
-  (require 'cl))
+  (require 'cl)
+  (require 'thingatpt))
 
 (defcustom etype-lines-file
   (concat
